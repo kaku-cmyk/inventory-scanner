@@ -32,6 +32,8 @@ const GAS_SEARCH_URL='https://script.google.com/a/macros/hiroshimaya.jp/s/AKfycb
 const REQUIRED_READS=3;
 const MAX_READ_INTERVAL=2500;
 let scanner=null, starting=false, confirmed=false, selectedJan='', candidate='', hits=0, lastRead=0, session=0;
+let sending=false;
+let sentToInventory=false;
 const statusBox=document.getElementById('status');
 const detectedBox=document.getElementById('detected');
 const detectedNumber=document.getElementById('detectedNumber');
@@ -57,6 +59,7 @@ function readBarcode(raw,ownSession){
  lastRead=now;
  if(hits<REQUIRED_READS){setStatus('JAN候補を確認中：'+hits+' / '+REQUIRED_READS+'回');return;}
  confirmed=true;selectedJan=jan;
+ sending=false;sentToInventory=false;searchButton.disabled=false;
  detectedNumber.textContent=jan;detectedBox.hidden=false;searchButton.hidden=false;retryButton.hidden=false;
  setStatus('3回読み取りました。印字数字を確認してください。','success');
  stopScanner();
@@ -64,6 +67,8 @@ function readBarcode(raw,ownSession){
 async function startScanner(){
  if(starting||confirmed)return;
  starting=true;const ownSession=++session;resetHits();
+ sending=false;sentToInventory=false;selectedJan='';
+ searchButton.disabled=false;searchButton.textContent='このJANで在庫検索';
  detectedBox.hidden=true;searchButton.hidden=true;retryButton.hidden=true;
  setStatus('背面カメラを起動しています...');
  try{
@@ -81,6 +86,7 @@ async function startScanner(){
 }
 retryButton.addEventListener('click',async()=>{
  retryButton.disabled=true;session++;confirmed=false;selectedJan='';
+ sending=false;sentToInventory=false;searchButton.disabled=false;searchButton.textContent='このJANで在庫検索';
  await clearScanner();starting=false;retryButton.disabled=false;
  startScanner();
 });
@@ -100,23 +106,55 @@ function sendToOpener(jan){
   try{window.opener.postMessage({type:'INVENTORY_SCANNER_JAN',jan},'*');}catch(e){done(false);}
  });
 }
+// Androidで同じタブを何度も使った場合も、検索ボタンを無効のままにしない。
 searchButton.addEventListener('click',async()=>{
- if(!validJan13(selectedJan))return;
- searchButton.disabled=true;
- setStatus('在庫検索画面へJANを送信しています...');
- const ok=await sendToOpener(selectedJan);
- if(ok){
-  setStatus('在庫検索へ送信しました。元の在庫検索タブに戻ってください。次回もこのスキャナータブを再利用します。','success');
-  await stopScanner();
-  try { window.opener.focus(); } catch(e) {}
-  // タブは閉じず、次回のスキャンで再利用する。
-  searchButton.hidden=true;
-  retryButton.hidden=false;
- }else{
-  // GAS iframe環境やブラウザの制限でタブ間通信できない場合の確実な代替
-  setStatus('元のタブと通信できないため、JAN付きの在庫検索画面を開きます。');
-  window.location.href=GAS_SEARCH_URL+'?jan='+encodeURIComponent(selectedJan);
+ if(sending)return;
+ const jan=selectedJan;
+ if(!validJan13(jan)){
+  setStatus('有効なJANが選択されていません。再スキャンしてください。','error');
+  searchButton.disabled=false;
+  return;
  }
+ sending=true;
+ searchButton.disabled=true;
+ searchButton.textContent='送信中...';
+ setStatus('在庫検索画面へJANを送信しています...');
+ try{
+  const ok=await sendToOpener(jan);
+  if(ok){
+   sentToInventory=true;
+   setStatus('JANを送信しました。在庫検索タブをご確認ください。次回もこのタブを再利用できます。','success');
+   await stopScanner();
+   try{window.opener.focus();}catch(e){}
+   searchButton.hidden=true;
+   retryButton.hidden=false;
+  }else{
+   setStatus('元の在庫検索タブと通信できませんでした。JAN付きの検索画面へ移動します。');
+   window.location.assign(GAS_SEARCH_URL+'?jan='+encodeURIComponent(jan));
+  }
+ }catch(error){
+  console.error('JAN送信エラー:',error);
+  setStatus('送信に失敗しました。もう一度「このJANで在庫検索」を押してください。','error');
+ }finally{
+  // 重要: Androidのタブ復帰時にdisabledが残らないよう必ず解除する。
+  sending=false;
+  searchButton.disabled=false;
+  searchButton.textContent='このJANで在庫検索';
+ }
+});
+// タブがバックグラウンドから復帰した際のボタン状態を復旧する。
+function restoreButtonState(){
+ if(sending)return;
+ searchButton.disabled=false;
+ searchButton.textContent='このJANで在庫検索';
+ if(confirmed&&validJan13(selectedJan)&&!sentToInventory){
+  searchButton.hidden=false;
+ }
+}
+window.addEventListener('pageshow',restoreButtonState);
+window.addEventListener('focus',restoreButtonState);
+document.addEventListener('visibilitychange',()=>{
+ if(!document.hidden)restoreButtonState();
 });
 backButton.addEventListener('click',async()=>{
  await stopScanner();
