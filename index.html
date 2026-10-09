@@ -6,7 +6,7 @@
 <title>JANリアルタイムスキャン</title>
 <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <style>
-*{box-sizing:border-box}body{margin:0;background:#101722;color:#fff;font-family:Meiryo,"メイリオ",sans-serif}header{background:#203b62;padding:18px 16px}h1{font-size:20px;margin:0}.subtitle{font-size:12px;color:#d6e1ef;margin-top:5px}main{max-width:600px;margin:auto;padding:16px}.guide{text-align:center;line-height:1.7;margin-bottom:14px}#reader{background:#000;border-radius:12px;overflow:hidden;width:100%}#reader video{width:100%!important}.status{background:#1e2938;border-radius:9px;text-align:center;padding:13px;margin-top:15px;line-height:1.6;font-size:14px}.status.success{background:#126a45}.status.error{background:#7a2828}.detected{background:#203047;border:2px solid #48bf8c;border-radius:12px;text-align:center;margin-top:15px;padding:18px 10px}.detected[hidden],button[hidden]{display:none!important}.detected-number{font-size:clamp(20px,6vw,30px);font-weight:bold;letter-spacing:1px;overflow-wrap:anywhere;margin:10px 0}.actions{display:grid;gap:10px;margin-top:18px}button{width:100%;border:0;border-radius:9px;padding:15px;font:700 15px Meiryo,"メイリオ",sans-serif;cursor:pointer}button:disabled{opacity:.5}.search{background:#23a36f;color:#fff}.retry{background:#e8edf4;color:#263449}.back{background:#24588f;color:#fff}.help{color:#aeb9c7;font-size:12px;line-height:1.8;margin-top:18px}
+*{box-sizing:border-box}body{margin:0;background:#101722;color:#fff;font-family:Meiryo,"メイリオ",sans-serif}header{background:#203b62;padding:18px 16px}h1{font-size:20px;margin:0}.subtitle{font-size:12px;color:#d6e1ef;margin-top:5px}main{max-width:600px;margin:auto;padding:16px}.guide{text-align:center;line-height:1.7;margin-bottom:14px}#reader{background:#000;border-radius:12px;overflow:hidden;width:100%}#reader video{width:100%!important}.status{background:#1e2938;border-radius:9px;text-align:center;padding:13px;margin-top:15px;line-height:1.6;font-size:14px}.status.success{background:#126a45}.status.error{background:#7a2828}.detected{background:#203047;border:2px solid #48bf8c;border-radius:12px;text-align:center;margin-top:15px;padding:18px 10px}.detected[hidden],button[hidden]{display:none!important}.detected-number{font-size:clamp(20px,6vw,30px);font-weight:bold;letter-spacing:1px;overflow-wrap:anywhere;margin:10px 0}.actions{display:grid;gap:10px;margin-top:18px}button{width:100%;border:0;border-radius:9px;padding:15px;font:700 15px Meiryo,"メイリオ",sans-serif;cursor:pointer}button:disabled{opacity:.5}.search{background:#23a36f;color:#fff;position:relative;z-index:20;pointer-events:auto!important;touch-action:manipulation;-webkit-tap-highlight-color:rgba(255,255,255,.2)}.retry{background:#e8edf4;color:#263449}.back{background:#24588f;color:#fff}.help{color:#aeb9c7;font-size:12px;line-height:1.8;margin-top:18px}
 </style>
 </head>
 <body>
@@ -33,6 +33,7 @@ const REQUIRED_READS=3;
 const MAX_READ_INTERVAL=2500;
 let scanner=null, starting=false, confirmed=false, selectedJan='', candidate='', hits=0, lastRead=0, session=0;
 let sending=false;
+let lastSendAttempt=0;
 let sentToInventory=false;
 const statusBox=document.getElementById('status');
 const detectedBox=document.getElementById('detected');
@@ -106,42 +107,51 @@ function sendToOpener(jan){
   try{window.opener.postMessage({type:'INVENTORY_SCANNER_JAN',jan},'*');}catch(e){done(false);}
  });
 }
-// Androidで同じタブを何度も使った場合も、検索ボタンを無効のままにしない。
-searchButton.addEventListener('click',async()=>{
- if(sending)return;
- const jan=selectedJan;
+// Android Chromeで再利用タブのclickが届かないケースにも対応する。
+// ボタンをdisabledにせず、連打防止はJSのフラグで行う。
+async function submitJan(){
+ const now=Date.now();
+ if(sending || now-lastSendAttempt<650)return;
+ lastSendAttempt=now;
+ const jan=selectedJan || detectedNumber.textContent.trim();
  if(!validJan13(jan)){
-  setStatus('有効なJANが選択されていません。再スキャンしてください。','error');
-  searchButton.disabled=false;
+  setStatus('JANを確認できません。再スキャンしてください。','error');
   return;
  }
  sending=true;
- searchButton.disabled=true;
+ searchButton.disabled=false;
  searchButton.textContent='送信中...';
  setStatus('在庫検索画面へJANを送信しています...');
  try{
   const ok=await sendToOpener(jan);
   if(ok){
    sentToInventory=true;
-   setStatus('JANを送信しました。在庫検索タブをご確認ください。次回もこのタブを再利用できます。','success');
+   setStatus('JANを送信しました。在庫検索タブをご確認ください。','success');
    await stopScanner();
    try{window.opener.focus();}catch(e){}
    searchButton.hidden=true;
    retryButton.hidden=false;
   }else{
-   setStatus('元の在庫検索タブと通信できませんでした。JAN付きの検索画面へ移動します。');
+   setStatus('元のタブと通信できないため、JAN付きの検索画面へ移動します。');
    window.location.assign(GAS_SEARCH_URL+'?jan='+encodeURIComponent(jan));
   }
  }catch(error){
   console.error('JAN送信エラー:',error);
-  setStatus('送信に失敗しました。もう一度「このJANで在庫検索」を押してください。','error');
+  setStatus('送信エラー：'+(error.message||String(error)),'error');
  }finally{
-  // 重要: Androidのタブ復帰時にdisabledが残らないよう必ず解除する。
   sending=false;
   searchButton.disabled=false;
   searchButton.textContent='このJANで在庫検索';
  }
-});
+}
+searchButton.addEventListener('click',submitJan);
+// タッチ端末ではclickイベントが欠落する場合に備え、touchendでも直接送信する。
+// touchendのデフォルトclickを抑止して二重送信を防ぐ。
+searchButton.addEventListener('touchend',function(event){
+ if(searchButton.hidden)return;
+ event.preventDefault();
+ submitJan();
+},{passive:false});
 // タブがバックグラウンドから復帰した際のボタン状態を復旧する。
 function restoreButtonState(){
  if(sending)return;
