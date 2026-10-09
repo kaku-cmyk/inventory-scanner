@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+
+<meta charset="UTF-8">
+
+<meta
+  name="viewport"
+  content="
+    width=device-width,
+    initial-scale=1,
+    maximum-scale=1,
+    user-scalable=no
+  "
+>
+
+<title>JANリアルタイムスキャン</title>
+
+<script
+  src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js">
+</script>
+
+<style>
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #101722;
+  color: white;
+  font-family:
+    Meiryo,
+    "メイリオ",
+    sans-serif;
+}
+
+header {
+  background: #203b62;
+  padding: 18px 16px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.subtitle {
+  margin-top: 5px;
+  font-size: 12px;
+  opacity: .8;
+}
+
+main {
+  max-width: 600px;
+  margin: auto;
+  padding: 16px;
+}
+
+.guide {
+  text-align: center;
+  margin-bottom: 14px;
+  line-height: 1.6;
+}
+
+#reader {
+  width: 100%;
+  overflow: hidden;
+  border-radius: 12px;
+  background: black;
+}
+
+#reader video {
+  width: 100% !important;
+  border-radius: 12px;
+}
+
+.status {
+  margin-top: 15px;
+  padding: 12px;
+  border-radius: 9px;
+  background: #1e2938;
+  text-align: center;
+  font-size: 14px;
+}
+
+.status.success {
+  background: #126a45;
+}
+
+.status.error {
+  background: #7a2828;
+}
+
+.detected {
+  margin-top: 12px;
+  text-align: center;
+}
+
+.detected-number {
+  font-size: 24px;
+  font-weight: bold;
+  letter-spacing: 1px;
+}
+
+.actions {
+  margin-top: 18px;
+  display: grid;
+  gap: 10px;
+}
+
+button {
+  width: 100%;
+  border: 0;
+  border-radius: 9px;
+  padding: 14px;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.retry {
+  background: #e8edf4;
+  color: #263449;
+}
+
+.back {
+  background: #24588f;
+  color: white;
+}
+
+.help {
+  margin-top: 18px;
+  color: #aeb9c7;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<header>
+
+<h1>
+  JANリアルタイムスキャン
+</h1>
+
+<div class="subtitle">
+  EAN-13 / JAN-13 / EAN-8
+</div>
+
+</header>
+
+<main>
+
+<div class="guide">
+  商品のバーコードを<br>
+  カメラの枠内に合わせてください
+</div>
+
+<div id="reader"></div>
+
+<div
+  id="status"
+  class="status">
+  カメラを起動しています...
+</div>
+
+<div
+  id="detected"
+  class="detected"
+  hidden>
+
+  読み取りJAN
+
+  <div
+    id="detectedNumber"
+    class="detected-number">
+  </div>
+
+</div>
+
+<div class="actions">
+
+<button
+  id="retryButton"
+  class="retry"
+  type="button"
+  hidden>
+  再スキャン
+</button>
+
+<button
+  id="backButton"
+  class="back"
+  type="button">
+  在庫検索へ戻る
+</button>
+
+</div>
+
+<div class="help">
+
+読み取りのコツ<br>
+
+・バーコードを水平にしてください。<br>
+・左右の白い余白まで枠内に入れてください。<br>
+・光が反射しない角度で読み取ってください。<br>
+・20～30cm程度離すと認識しやすくなります。
+
+</div>
+
+</main>
+
+<script>
+
+'use strict';
+
+/************************************************
+ * 必ず変更してください
+ *
+ * 現在利用しているGAS WebアプリURL
+ ************************************************/
+
+const GAS_SEARCH_URL =
+  'https://script.google.com/a/macros/hiroshimaya.jp/s/あなたのデプロイID/exec';
+  
+
+
+/************************************************
+ * 状態
+ ************************************************/
+
+let scanner = null;
+
+let detected = false;
+
+let starting = false;
+
+
+/************************************************
+ * DOM
+ ************************************************/
+
+const statusBox =
+  document.getElementById('status');
+
+const detectedBox =
+  document.getElementById('detected');
+
+const detectedNumber =
+  document.getElementById('detectedNumber');
+
+const retryButton =
+  document.getElementById('retryButton');
+
+const backButton =
+  document.getElementById('backButton');
+
+
+/************************************************
+ * JANチェック
+ ************************************************/
+
+function normalizeBarcode(value) {
+
+  const code =
+    String(value || '').trim();
+
+  // UPC-A → EAN-13
+  if (/^\d{12}$/.test(code)) {
+
+    return '0' + code;
+
+  }
+
+  return code;
+}
+
+
+function validateJan(value) {
+
+  const code =
+    normalizeBarcode(value);
+
+  if (
+    !/^(?:\d{8}|\d{13})$/.test(code)
+  ) {
+
+    return false;
+
+  }
+
+  let total = 0;
+
+  let weight = 3;
+
+
+  for (
+    let i = code.length - 2;
+    i >= 0;
+    i--
+  ) {
+
+    total +=
+      Number(code[i]) * weight;
+
+    weight =
+      weight === 3
+        ? 1
+        : 3;
+
+  }
+
+
+  const check =
+    (10 - total % 10) % 10;
+
+
+  return (
+    check ===
+    Number(
+      code[code.length - 1]
+    )
+  );
+
+}
+
+
+/************************************************
+ * ステータス
+ ************************************************/
+
+function setStatus(
+  message,
+  type = ''
+) {
+
+  statusBox.textContent =
+    message;
+
+  statusBox.className =
+    'status' +
+    (
+      type
+        ? ' ' + type
+        : ''
+    );
+
+}
+
+
+/************************************************
+ * JAN認識成功
+ ************************************************/
+
+async function barcodeDetected(
+  rawValue
+) {
+
+  if (detected) {
+
+    return;
+
+  }
+
+
+  const jan =
+    normalizeBarcode(rawValue);
+
+
+  if (!validateJan(jan)) {
+
+    return;
+
+  }
+
+
+  detected = true;
+
+
+  setStatus(
+    'JANを認識しました',
+    'success'
+  );
+
+
+  detectedBox.hidden = false;
+
+  detectedNumber.textContent =
+    jan;
+
+
+  if (scanner) {
+
+    try {
+
+      if (
+        scanner.isScanning
+      ) {
+
+        await scanner.stop();
+
+      }
+
+    }
+    catch (error) {
+
+      console.log(error);
+
+    }
+
+  }
+
+
+  /**********************************************
+   * 0.4秒だけ結果を表示して
+   * 在庫検索画面へ自動遷移
+   **********************************************/
+
+  setTimeout(
+    function() {
+
+      window.location.href =
+        GAS_SEARCH_URL +
+        '?jan=' +
+        encodeURIComponent(jan);
+
+    },
+    400
+  );
+
+}
+
+
+/************************************************
+ * カメラ起動
+ ************************************************/
+
+async function startScanner() {
+
+  if (
+    starting ||
+    detected
+  ) {
+
+    return;
+
+  }
+
+
+  starting = true;
+
+
+  detectedBox.hidden = true;
+
+  retryButton.hidden = true;
+
+
+  setStatus(
+    '背面カメラを起動しています...'
+  );
+
+
+  try {
+
+    scanner =
+      new Html5Qrcode(
+        'reader',
+        {
+          formatsToSupport: [
+
+            Html5QrcodeSupportedFormats.EAN_13,
+
+            Html5QrcodeSupportedFormats.EAN_8,
+
+            Html5QrcodeSupportedFormats.UPC_A
+
+          ],
+
+          verbose: false
+        }
+      );
+
+
+    await scanner.start(
+
+      {
+        facingMode:
+          'environment'
+      },
+
+      {
+
+        fps: 15,
+
+        aspectRatio:
+          1.777778,
+
+        qrbox:
+          function(
+            viewfinderWidth,
+            viewfinderHeight
+          ) {
+
+            const width =
+              Math.min(
+                viewfinderWidth - 30,
+                360
+              );
+
+
+            return {
+
+              width:
+                Math.max(
+                  width,
+                  180
+                ),
+
+              height:
+                140
+
+            };
+
+          }
+
+      },
+
+      function(
+        decodedText
+      ) {
+
+        barcodeDetected(
+          decodedText
+        );
+
+      },
+
+      function() {
+
+        // 読み取り途中の
+        // エラーは表示しない
+
+      }
+
+    );
+
+
+    setStatus(
+      'バーコードを枠内に合わせてください'
+    );
+
+
+  }
+  catch (error) {
+
+    console.error(error);
+
+
+    setStatus(
+      'カメラを起動できませんでした',
+      'error'
+    );
+
+
+    retryButton.hidden =
+      false;
+
+
+  }
+  finally {
+
+    starting = false;
+
+  }
+
+}
+
+
+/************************************************
+ * 再スキャン
+ ************************************************/
+
+retryButton
+  .addEventListener(
+    'click',
+    async function() {
+
+      detected = false;
+
+
+      try {
+
+        if (scanner) {
+
+          await scanner.clear();
+
+        }
+
+      }
+      catch (error) {
+
+      }
+
+
+      scanner = null;
+
+
+      startScanner();
+
+    }
+  );
+
+
+/************************************************
+ * 在庫検索へ戻る
+ ************************************************/
+
+backButton
+  .addEventListener(
+    'click',
+    function() {
+
+      window.location.href =
+        GAS_SEARCH_URL;
+
+    }
+  );
+
+
+/************************************************
+ * 起動
+ ************************************************/
+
+window
+  .addEventListener(
+    'load',
+    function() {
+
+      startScanner();
+
+    }
+  );
+
+</script>
+
+</body>
+
+</html>
