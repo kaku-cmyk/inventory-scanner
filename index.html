@@ -6,14 +6,14 @@
 <title>JANリアルタイムスキャン</title>
 <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <style>
-*{box-sizing:border-box}body{margin:0;background:#101722;color:#fff;font-family:Meiryo,"メイリオ",sans-serif}header{background:#203b62;padding:18px 16px}h1{font-size:20px;margin:0}.subtitle{font-size:12px;color:#d6e1ef;margin-top:5px}main{max-width:600px;margin:auto;padding:16px}.guide{text-align:center;line-height:1.7;margin-bottom:14px}#reader{background:#000;border-radius:12px;overflow:hidden;width:100%}#reader video{width:100%!important}.status{background:#1e2938;border-radius:9px;text-align:center;padding:13px;margin-top:15px;line-height:1.6;font-size:14px}.status.success{background:#126a45}.status.error{background:#7a2828}.detected{background:#203047;border:2px solid #48bf8c;border-radius:12px;text-align:center;margin-top:15px;padding:18px 10px}.detected[hidden],button[hidden]{display:none!important}.detected-number{font-size:clamp(20px,6vw,30px);font-weight:bold;letter-spacing:1px;overflow-wrap:anywhere;margin:10px 0}.actions{display:grid;gap:10px;margin-top:18px}button{width:100%;border:0;border-radius:9px;padding:15px;font:700 15px Meiryo,"メイリオ",sans-serif;cursor:pointer}button:disabled{opacity:.5}.search{background:#23a36f;color:#fff;position:relative;z-index:20;pointer-events:auto!important;touch-action:manipulation;-webkit-tap-highlight-color:rgba(255,255,255,.2)}.retry{background:#e8edf4;color:#263449}.back{background:#24588f;color:#fff}.help{color:#aeb9c7;font-size:12px;line-height:1.8;margin-top:18px}
+*{box-sizing:border-box}body{margin:0;background:#101722;color:#fff;font-family:Meiryo,"メイリオ",sans-serif}header{background:#203b62;padding:18px 16px}h1{font-size:20px;margin:0}.subtitle{font-size:12px;color:#d6e1ef;margin-top:5px}main{max-width:600px;margin:auto;padding:16px}.guide{text-align:center;line-height:1.7;margin-bottom:14px}#reader{background:#000;border-radius:12px;overflow:hidden;width:100%}#reader video{width:100%!important} .camera-wrap{position:relative;width:100%}.scan-overlay{position:absolute;inset:0;z-index:5;pointer-events:none;display:flex;align-items:center;justify-content:center}.scan-overlay[hidden]{display:none!important}.scan-guide{width:min(88%,340px);height:115px;border:3px solid #36d3ff;border-radius:12px;box-shadow:0 0 0 999px rgba(0,0,0,.12),0 0 14px rgba(54,211,255,.45);position:relative}.scan-guide:after{content:"バーコードを横長の枠内へ";position:absolute;top:100%;left:0;right:0;text-align:center;font-size:12px;padding-top:9px;color:#fff;text-shadow:0 1px 3px #000}.status{background:#1e2938;border-radius:9px;text-align:center;padding:13px;margin-top:15px;line-height:1.6;font-size:14px}.status.success{background:#126a45}.status.error{background:#7a2828}.detected{background:#203047;border:2px solid #48bf8c;border-radius:12px;text-align:center;margin-top:15px;padding:18px 10px}.detected[hidden],button[hidden]{display:none!important}.detected-number{font-size:clamp(20px,6vw,30px);font-weight:bold;letter-spacing:1px;overflow-wrap:anywhere;margin:10px 0}.actions{display:grid;gap:10px;margin-top:18px}button{width:100%;border:0;border-radius:9px;padding:15px;font:700 15px Meiryo,"メイリオ",sans-serif;cursor:pointer}button:disabled{opacity:.5}.search{background:#23a36f;color:#fff;position:relative;z-index:20;pointer-events:auto!important;touch-action:manipulation;-webkit-tap-highlight-color:rgba(255,255,255,.2)}.retry{background:#e8edf4;color:#263449}.back{background:#24588f;color:#fff}.help{color:#aeb9c7;font-size:12px;line-height:1.8;margin-top:18px}
 </style>
 </head>
 <body>
-<header><h1>JANリアルタイムスキャン</h1><div class="subtitle">JAN-13 / EAN-13専用</div></header>
+<header><h1>JANリアルタイムスキャン</h1><div class="subtitle">JAN-13 / EAN-13専用 ・ 横長枠版 v2</div></header>
 <main>
 <div class="guide">商品のバーコードを<br>カメラの枠内に合わせてください</div>
-<div id="reader"></div>
+<div class="camera-wrap"><div id="reader"></div><div id="scanOverlay" class="scan-overlay"><div class="scan-guide"></div></div></div>
 <div id="status" class="status">カメラを起動しています...</div>
 <div id="detected" class="detected" hidden>
 <div>読み取りJAN（13桁）</div><div id="detectedNumber" class="detected-number"></div>
@@ -41,6 +41,7 @@ const detectedNumber=document.getElementById('detectedNumber');
 const searchButton=document.getElementById('searchButton');
 const retryButton=document.getElementById('retryButton');
 const backButton=document.getElementById('backButton');
+const scanOverlay=document.getElementById('scanOverlay');
 function setStatus(message,type=''){statusBox.textContent=message;statusBox.className='status'+(type?' '+type:'');}
 function validJan13(code){
  if(!/^\d{13}$/.test(code))return false;
@@ -61,7 +62,7 @@ function readBarcode(raw,ownSession){
  if(hits<REQUIRED_READS){setStatus('JAN候補を確認中：'+hits+' / '+REQUIRED_READS+'回');return;}
  confirmed=true;selectedJan=jan;
  sending=false;sentToInventory=false;searchButton.disabled=false;
- detectedNumber.textContent=jan;detectedBox.hidden=false;searchButton.hidden=false;retryButton.hidden=false;
+ scanOverlay.hidden=true;detectedNumber.textContent=jan;detectedBox.hidden=false;searchButton.hidden=false;retryButton.hidden=false;
  setStatus('3回読み取りました。印字数字を確認してください。','success');
  stopScanner();
 }
@@ -70,12 +71,12 @@ async function startScanner(){
  starting=true;const ownSession=++session;resetHits();
  sending=false;sentToInventory=false;selectedJan='';
  searchButton.disabled=false;searchButton.textContent='このJANで在庫検索';
- detectedBox.hidden=true;searchButton.hidden=true;retryButton.hidden=true;
+ scanOverlay.hidden=false;detectedBox.hidden=true;searchButton.hidden=true;retryButton.hidden=true;
  setStatus('背面カメラを起動しています...');
  try{
   if(typeof Html5Qrcode==='undefined')throw new Error('読み取りライブラリを読み込めません');
   scanner=new Html5Qrcode('reader',{formatsToSupport:[Html5QrcodeSupportedFormats.EAN_13],verbose:false});
-  // JANコード用の横長ガイド。小さい画面では自動的に縮小する。
+  // JANコード用の横長読み取り領域。ガイド枠はCSSでも表示する。
   const cameraConfig={
     fps:10,
     qrbox:(viewWidth,viewHeight)=>{
