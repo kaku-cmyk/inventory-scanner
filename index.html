@@ -75,8 +75,16 @@ async function startScanner(){
  try{
   if(typeof Html5Qrcode==='undefined')throw new Error('読み取りライブラリを読み込めません');
   scanner=new Html5Qrcode('reader',{formatsToSupport:[Html5QrcodeSupportedFormats.EAN_13],verbose:false});
-  // qrboxとaspectRatioを指定せず、機種ごとの映像サイズを利用
-  await scanner.start({facingMode:'environment'},{fps:10},text=>readBarcode(text,ownSession),()=>{});
+  // JANコード用の横長ガイド。小さい画面では自動的に縮小する。
+  const cameraConfig={
+    fps:10,
+    qrbox:(viewWidth,viewHeight)=>{
+      const width=Math.max(100,Math.min(340,viewWidth-24));
+      const height=Math.min(125,Math.max(65,viewHeight-24),Math.round(width*0.38));
+      return {width:Math.round(width),height:Math.round(height)};
+    }
+  };
+  await scanner.start({facingMode:'environment'},cameraConfig,text=>readBarcode(text,ownSession),()=>{});
   if(ownSession!==session){await stopScanner();return;}
   if(!confirmed)setStatus('JAN-13を読み取り中です。バーコードを枠内に合わせてください。');
  }catch(error){
