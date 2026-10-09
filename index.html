@@ -132,7 +132,7 @@ async function submitJan(){
    searchButton.hidden=true;
    retryButton.hidden=false;
   }else{
-   setStatus('元のタブと通信できないため、JAN付きの検索画面へ移動します。');
+   setStatus('在庫検索画面を開いています...');
    window.location.assign(GAS_SEARCH_URL+'?jan='+encodeURIComponent(jan));
   }
  }catch(error){
