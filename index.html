@@ -106,8 +106,12 @@ searchButton.addEventListener('click',async()=>{
  setStatus('在庫検索画面へJANを送信しています...');
  const ok=await sendToOpener(selectedJan);
  if(ok){
-  setStatus('元の在庫検索画面に送信しました。スキャナータブを閉じてください。','success');
-  window.close();
+  setStatus('在庫検索へ送信しました。元の在庫検索タブに戻ってください。次回もこのスキャナータブを再利用します。','success');
+  await stopScanner();
+  try { window.opener.focus(); } catch(e) {}
+  // タブは閉じず、次回のスキャンで再利用する。
+  searchButton.hidden=true;
+  retryButton.hidden=false;
  }else{
   // GAS iframe環境やブラウザの制限でタブ間通信できない場合の確実な代替
   setStatus('元のタブと通信できないため、JAN付きの在庫検索画面を開きます。');
@@ -117,8 +121,8 @@ searchButton.addEventListener('click',async()=>{
 backButton.addEventListener('click',async()=>{
  await stopScanner();
  if(window.opener&&!window.opener.closed){
-  setStatus('元の在庫検索タブに戻ってください。','success');
-  window.close();
+  setStatus('元の在庫検索タブに戻ってください。スキャナータブは次回も再利用できます。','success');
+  try { window.opener.focus(); } catch(e) {}
   return;
  }
  // 直接開いた場合は、元タブがないため通常の在庫検索URLへ戻る
